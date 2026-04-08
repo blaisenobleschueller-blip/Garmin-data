@@ -1,0 +1,25 @@
+# Credentials — never commit these
+.env
+
+# Output files
+*.ics
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Garmin session tokens (cached by garminconnect)
+.garminconnect
+~/.garminconnect
+
+# OS
+.DS_Store
+Thumbs.db

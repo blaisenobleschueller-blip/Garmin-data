@@ -1,0 +1,6 @@
+garminconnect>=0.2.19
+icalendar>=5.0.12
+python-dotenv>=1.0.0
+click>=8.1.7
+pytz>=2024.1
+requests>=2.31.0
