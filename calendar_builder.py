@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import pytz
 from icalendar import Calendar, Event, vText
+
+if TYPE_CHECKING:
+    from recovery_scorer import RecoveryResult
 
 logger = logging.getLogger(__name__)
 
@@ -241,14 +244,25 @@ def _daily_wellness_event(
     body_battery_min: int | None,
     avg_stress: int | None,
     hrv_summary: dict[str, Any] | None,
+    recovery: "RecoveryResult | None" = None,
 ) -> Event | None:
-    """Combine body battery, stress, and HRV into a single all-day note."""
+    """Combine recovery score, body battery, stress, and HRV into a single all-day note."""
     parts: list[str] = []
     summary_parts: list[str] = []
 
+    # Recovery score — shown first and prominently
+    if recovery is not None:
+        parts.append(
+            f"{recovery.emoji} Recovery {recovery.score}/100 · {recovery.label}"
+        )
+        parts.append(f"   {recovery.recommendation}")
+        parts.append("")  # blank separator
+        summary_parts.append(f"{recovery.emoji} Recovery {recovery.score}")
+
     if body_battery_max is not None:
         parts.append(f"{_BATTERY_EMOJI} Body Battery: {body_battery_min}–{body_battery_max}")
-        summary_parts.append(f"BB {body_battery_max}")
+        if recovery is None:
+            summary_parts.append(f"BB {body_battery_max}")
     if avg_stress is not None:
         stress_label = (
             "low" if avg_stress < 26
@@ -257,7 +271,8 @@ def _daily_wellness_event(
             else "very high"
         )
         parts.append(f"{_STRESS_EMOJI} Avg Stress: {avg_stress} ({stress_label})")
-        summary_parts.append(f"Stress {avg_stress}")
+        if recovery is None:
+            summary_parts.append(f"Stress {avg_stress}")
     if hrv_summary:
         last_night = hrv_summary.get("lastNight")
         status = hrv_summary.get("hrvStatusSummary", {})
@@ -265,14 +280,18 @@ def _daily_wellness_event(
         if isinstance(status, dict):
             status_str = status.get("overallHrvStatus", "")
         if last_night:
-            parts.append(f"{_HRV_EMOJI} HRV: {last_night:.0f} ms" + (f" ({status_str})" if status_str else ""))
-            summary_parts.append(f"HRV {last_night:.0f}")
+            hrv_line = f"{_HRV_EMOJI} HRV: {last_night:.0f} ms"
+            if status_str:
+                hrv_line += f" ({status_str})"
+            if recovery and recovery.hrv_baseline:
+                hrv_line += f" · baseline {recovery.hrv_baseline:.0f} ms"
+            parts.append(hrv_line)
 
     if not parts:
         return None
 
     event = Event()
-    event.add("summary", f"Wellness · {', '.join(summary_parts)}")
+    event.add("summary", " · ".join(summary_parts) if summary_parts else "Wellness")
     event.add("description", "\n".join(parts))
     event.add("dtstart", day)
     event.add("dtend", day + timedelta(days=1))
@@ -293,6 +312,7 @@ def build_calendar(
     body_battery: list[dict[str, Any]],
     stress_records: list[dict[str, Any]],
     hrv_records: list[dict[str, Any]],
+    recovery_map: "dict[str, RecoveryResult] | None" = None,
     calendar_name: str = "Garmin Health",
 ) -> Calendar:
     """Assemble all Garmin data into a single VCALENDAR object."""
@@ -357,8 +377,9 @@ def build_calendar(
         bb = bb_by_date.get(date_str, (None, None))
         stress = stress_by_date.get(date_str)
         hrv = hrv_by_date.get(date_str)
+        recovery = (recovery_map or {}).get(date_str)
         try:
-            event = _daily_wellness_event(day, bb[0], bb[1], stress, hrv)
+            event = _daily_wellness_event(day, bb[0], bb[1], stress, hrv, recovery)
             if event:
                 cal.add_component(event)
         except Exception as exc:  # noqa: BLE001

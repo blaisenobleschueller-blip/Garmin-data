@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: garmin-calendar
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app --workers 1 --timeout 120
+    plan: free                  # upgrade to "starter" ($7/mo) for always-on
+    healthCheckPath: /
+    envVars:
+      - key: GARMIN_EMAIL
+        sync: false             # set manually in Render dashboard
+      - key: GARMIN_PASSWORD
+        sync: false             # set manually in Render dashboard
+      - key: CALENDAR_TOKEN
+        generateValue: true     # Render auto-generates a secure random token
+      - key: LOOKBACK_DAYS
+        value: "14"
+      - key: CACHE_TTL_SECONDS
+        value: "3600"
+      - key: CALENDAR_NAME
+        value: "Garmin Health"
