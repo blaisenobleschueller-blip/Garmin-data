@@ -28,8 +28,25 @@ class GarminClient:
     # ------------------------------------------------------------------
 
     def connect(self) -> None:
-        """Authenticate with Garmin Connect."""
+        """Authenticate with Garmin Connect.
+
+        Prefers saved OAuth tokens (GARMIN_TOKENS env var) over a fresh login.
+        Saved tokens bypass Cloudflare blocking that affects cloud server IPs.
+        Generate tokens on your local machine by running: python auth_setup.py
+        """
         self._api = Garmin(self._email, self._password)
+
+        saved_tokens = os.environ.get("GARMIN_TOKENS", "").strip()
+        if saved_tokens:
+            try:
+                self._api.garth.loads(saved_tokens)
+                logger.info("Loaded saved Garmin session tokens (skipping fresh login)")
+                return
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Saved tokens invalid or expired — falling back to fresh login: %s", exc
+                )
+
         try:
             self._api.login()
             logger.info("Logged in to Garmin Connect as %s", self._email)
