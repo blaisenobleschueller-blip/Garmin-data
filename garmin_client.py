@@ -5,6 +5,7 @@ body battery, stress, and HRV data for a given date range.
 
 from __future__ import annotations
 
+import json
 import os
 import logging
 from datetime import date, timedelta
@@ -15,16 +16,61 @@ from garminconnect import Garmin, GarminConnectAuthenticationError
 logger = logging.getLogger(__name__)
 
 
-def _load_tokens_into(api: Garmin, token_string: str) -> None:
-    """Load serialized session tokens — works with garminconnect 0.2.x and 0.3.x."""
-    if hasattr(api, "garth"):
-        # garminconnect 0.2.x: tokens are on the api instance's garth attribute
-        api.garth.loads(token_string)
-    else:
-        # garminconnect 0.3.x: garth is configured globally
-        import garth
-        garth.client.loads(token_string)
+# ---------------------------------------------------------------------------
+# Token loading — supports garminconnect 0.2.x and 0.3.x
+# ---------------------------------------------------------------------------
 
+def _load_tokens_v3(api: Garmin, token_data: dict) -> None:
+    """Inject 0.3.x OAuth tokens into a fresh Garmin object."""
+    for attr in ["oauth1_token", "oauth2_token"]:
+        if attr in token_data:
+            val = token_data[attr]
+            existing = getattr(api, attr, None)
+            if existing is not None and hasattr(existing, "__dict__"):
+                existing.__dict__.update(val)
+            else:
+                setattr(api, attr, val)
+
+    if "cookies" in token_data:
+        for session_attr in ["session", "client", "_session"]:
+            sess = getattr(api, session_attr, None)
+            if sess is not None and hasattr(sess, "cookies"):
+                try:
+                    sess.cookies.update(token_data["cookies"])
+                except Exception:
+                    pass
+                break
+
+    for attr in ["access_token", "refresh_token", "token", "session_token"]:
+        if attr in token_data:
+            setattr(api, attr, token_data[attr])
+
+
+def _load_token_string(api: Garmin, token_string: str) -> None:
+    """Load serialised session tokens — works with garminconnect 0.2.x and 0.3.x."""
+    # garminconnect 0.2.x: api.garth is a garth client instance
+    if hasattr(api, "garth"):
+        api.garth.loads(token_string)
+        return
+
+    # garminconnect 0.3.x: tokens serialised as JSON by auth_setup.py
+    try:
+        data = json.loads(token_string)
+        if isinstance(data, dict) and data.get("_format") == "gc-0.3":
+            _load_tokens_v3(api, data)
+            return
+    except (json.JSONDecodeError, KeyError):
+        pass
+
+    raise ValueError(
+        "GARMIN_TOKENS format not recognised for the installed garminconnect version. "
+        "Re-run auth_setup.py locally to generate fresh tokens."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Client
+# ---------------------------------------------------------------------------
 
 class GarminClient:
     """Thin wrapper around garminconnect that handles login and data fetching."""
@@ -50,7 +96,7 @@ class GarminClient:
         saved_tokens = os.environ.get("GARMIN_TOKENS", "").strip()
         if saved_tokens:
             try:
-                _load_tokens_into(self._api, saved_tokens)
+                _load_token_string(self._api, saved_tokens)
                 logger.info("Loaded saved Garmin session tokens (skipping fresh login)")
                 return
             except Exception as exc:  # noqa: BLE001
