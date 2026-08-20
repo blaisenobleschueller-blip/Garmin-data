@@ -8,6 +8,8 @@ the login flow (which Cloudflare blocks on cloud server IPs).
 
 Usage:
     python auth_setup.py
+
+Works with garminconnect 0.2.x AND 0.3.x installed locally.
 """
 
 import getpass
@@ -17,6 +19,33 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _extract_token_string(api) -> str:
+    """Extract serialized session tokens — works with 0.2.x and 0.3.x."""
+    # garminconnect 0.2.x: api has a .garth attribute
+    if hasattr(api, "garth"):
+        return api.garth.dumps()
+
+    # garminconnect 0.3.x: garth is configured globally; access via module
+    try:
+        import garth
+        return garth.client.dumps()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not extract session tokens from garminconnect 0.3.x ({exc}). "
+            "If the problem persists, try: pip install 'garminconnect>=0.2.19,<0.3.0'"
+        ) from exc
+
+
+def _load_token_string(api, token_string: str) -> None:
+    """Load serialized session tokens into the api — works with 0.2.x and 0.3.x."""
+    if hasattr(api, "garth"):
+        api.garth.loads(token_string)
+        return
+
+    import garth
+    garth.client.loads(token_string)
 
 
 def _print_tokens(token_string: str) -> None:
@@ -35,6 +64,10 @@ Steps:
   3. Set NAME to:  GARMIN_TOKENS
   4. Paste the entire string below as the value
   5. Click 'Save Changes' — Render will redeploy automatically
+
+Do the same for BOTH Render services:
+  • garmin-data (the calendar server)
+  • health-dashboard (the health dashboard)
 
 """)
     print("-" * 60)
@@ -93,5 +126,10 @@ except Exception as exc:
         print(f"\nUnexpected error: {exc}")
     sys.exit(1)
 
-token_string = api.garth.dumps()
+try:
+    token_string = _extract_token_string(api)
+except RuntimeError as exc:
+    print(f"\nError: {exc}")
+    sys.exit(1)
+
 _print_tokens(token_string)

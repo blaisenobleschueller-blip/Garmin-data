@@ -15,6 +15,17 @@ from garminconnect import Garmin, GarminConnectAuthenticationError
 logger = logging.getLogger(__name__)
 
 
+def _load_tokens_into(api: Garmin, token_string: str) -> None:
+    """Load serialized session tokens — works with garminconnect 0.2.x and 0.3.x."""
+    if hasattr(api, "garth"):
+        # garminconnect 0.2.x: tokens are on the api instance's garth attribute
+        api.garth.loads(token_string)
+    else:
+        # garminconnect 0.3.x: garth is configured globally
+        import garth
+        garth.client.loads(token_string)
+
+
 class GarminClient:
     """Thin wrapper around garminconnect that handles login and data fetching."""
 
@@ -39,7 +50,7 @@ class GarminClient:
         saved_tokens = os.environ.get("GARMIN_TOKENS", "").strip()
         if saved_tokens:
             try:
-                self._api.garth.loads(saved_tokens)
+                _load_tokens_into(self._api, saved_tokens)
                 logger.info("Loaded saved Garmin session tokens (skipping fresh login)")
                 return
             except Exception as exc:  # noqa: BLE001
